@@ -109,8 +109,8 @@ app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
   });
 });
 
-// Listen on port if started directly
-if (process.env.NODE_ENV !== 'test') {
+// Listen on port if started directly in development
+if (process.env.NODE_ENV !== 'production' && process.env.NODE_ENV !== 'test') {
   app.listen(PORT, () => {
     console.log(`[Aperture Server] Ready and listening on port ${PORT}`);
     console.log(`[Aperture Server] Health check available at http://localhost:${PORT}/health`);
