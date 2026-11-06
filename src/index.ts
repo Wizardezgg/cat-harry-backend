@@ -48,9 +48,14 @@ app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
-// Connect to MongoDB
-connectDB().catch((err) => {
-  console.error('[Aperture Server] Initial MongoDB connection error:', err);
+// Serverless-ready database connection middleware
+app.use(async (_req: Request, _res: Response, next: NextFunction) => {
+  try {
+    await connectDB();
+  } catch (err: any) {
+    console.error('[Aperture Server] Database connection middleware error:', err?.message || err);
+  }
+  next();
 });
 
 // Diagnostic & Health Endpoints
@@ -90,6 +95,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api/studios', studioRoutes);
 app.use('/api/bookings', bookingRoutes);
 app.use('/api/wishlist', wishlistRoutes);
+app.use('/api/wishlists', wishlistRoutes);
 
 // Catch-all 404 Handler
 app.use((req: Request, res: Response) => {

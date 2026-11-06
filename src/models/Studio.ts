@@ -43,7 +43,6 @@ const studioSchema = new Schema<IStudioDocument>(
     city: {
       type: String,
       trim: true,
-      default: 'New York',
     },
     images: {
       type: [String],
@@ -60,7 +59,6 @@ const studioSchema = new Schema<IStudioDocument>(
     },
     sqft: {
       type: Number,
-      default: 2000,
     },
     capacity: {
       type: Number,
@@ -70,7 +68,7 @@ const studioSchema = new Schema<IStudioDocument>(
     },
     rating: {
       type: Number,
-      default: 5.0,
+      default: 0,
       min: 0,
       max: 5,
     },

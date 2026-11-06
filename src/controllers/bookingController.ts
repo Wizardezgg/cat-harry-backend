@@ -111,20 +111,28 @@ export async function createBooking(req: Request, res: Response): Promise<void> 
     const finalDeposit = Number(securityDeposit) || 150;
     const totalPrice = subtotal + finalDeposit;
 
-    const currentUserId = (req as any).user?._id || 'creator_marcus';
-    const currentUserName = userName || (req as any).user?.name || 'Marcus Vance';
-    const currentUserEmail = (userEmail || (req as any).user?.email || 'creator@studiospace.com').toLowerCase();
+    const currentUserId = (req as any).user?._id || req.body.userId || (userEmail ? userEmail : 'guest_user');
+    const currentUserName = userName || (req as any).user?.name || req.body.userName || 'Verified Guest';
+    const currentUserEmail = (userEmail || req.body.userEmail || (req as any).user?.email || '').toLowerCase().trim();
+
+    if (!currentUserEmail) {
+      res.status(400).json({
+        success: false,
+        message: 'A valid user email is required to process reservation. Please ensure you are logged in.',
+      });
+      return;
+    }
 
     const newBooking = await Booking.create({
       studioId,
       studioTitle: resolvedTitle,
-      studioImage: resolvedImage || 'https://images.unsplash.com/photo-1598488035139-bdbb2231ce04?auto=format&fit=crop&w=1200&q=80',
-      studioLocation: resolvedLocation || 'Creative Arts District',
+      studioImage: resolvedImage || '',
+      studioLocation: resolvedLocation || '',
       pricePerHour: effectiveRate,
       userId: currentUserId,
       userName: currentUserName,
       userEmail: currentUserEmail,
-      userPhone: userPhone || '+1 (555) 019-2834',
+      userPhone: userPhone || '',
       bookingDate,
       startTime,
       endTime,
@@ -154,14 +162,34 @@ export async function createBooking(req: Request, res: Response): Promise<void> 
 export async function getMyBookings(req: Request, res: Response): Promise<void> {
   try {
     const userEmail =
-      (req as any).user?.email ||
       req.query.userEmail ||
       req.query.email ||
-      'creator@studiospace.com';
+      (req as any).user?.email;
 
-    const bookings = await Booking.find({
-      userEmail: new RegExp(`^${String(userEmail).trim()}$`, 'i'),
-    }).sort({ bookingDate: -1, createdAt: -1 });
+    const userId = req.query.userId || (req as any).user?._id;
+
+    if (!userEmail && !userId) {
+      res.status(200).json({
+        success: true,
+        count: 0,
+        bookings: [],
+      });
+      return;
+    }
+
+    const filter: Record<string, any> = {};
+    if (userEmail && userId) {
+      filter.$or = [
+        { userEmail: new RegExp(`^${String(userEmail).trim()}$`, 'i') },
+        { userId: String(userId) },
+      ];
+    } else if (userEmail) {
+      filter.userEmail = new RegExp(`^${String(userEmail).trim()}$`, 'i');
+    } else if (userId) {
+      filter.userId = String(userId);
+    }
+
+    const bookings = await Booking.find(filter).sort({ bookingDate: -1, createdAt: -1 });
 
     res.status(200).json({
       success: true,

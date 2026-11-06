@@ -6,8 +6,13 @@ import { Studio } from '../models/Studio';
 // @route   POST /api/wishlist/toggle
 export async function toggleWishlist(req: Request, res: Response): Promise<void> {
   try {
-    const { studioId } = req.body;
-    const userId = (req as any).user?._id || req.body.userId || 'creator_marcus';
+    const { studioId, userId: reqUserId, userEmail: reqUserEmail } = req.body;
+    const userId =
+      (req as any).user?._id ||
+      (req as any).user?.email ||
+      reqUserId ||
+      reqUserEmail ||
+      'creator_guest';
 
     if (!studioId) {
       res.status(400).json({
@@ -23,6 +28,7 @@ export async function toggleWishlist(req: Request, res: Response): Promise<void>
       await Wishlist.findByIdAndDelete(existing._id);
       res.status(200).json({
         success: true,
+        saved: false,
         isSaved: false,
         message: 'Studio removed from saved wishlist',
       });
@@ -30,8 +36,9 @@ export async function toggleWishlist(req: Request, res: Response): Promise<void>
     }
 
     await Wishlist.create({ userId, studioId });
-    res.status(201).json({
+    res.status(200).json({
       success: true,
+      saved: true,
       isSaved: true,
       message: 'Studio saved to wishlist',
     });
@@ -48,7 +55,12 @@ export async function toggleWishlist(req: Request, res: Response): Promise<void>
 // @route   GET /api/wishlist
 export async function getWishlist(req: Request, res: Response): Promise<void> {
   try {
-    const userId = (req as any).user?._id || req.query.userId || 'creator_marcus';
+    const userId =
+      (req as any).user?._id ||
+      (req as any).user?.email ||
+      req.query.userId ||
+      req.query.userEmail ||
+      'creator_guest';
 
     const wishlistItems = await Wishlist.find({ userId }).sort({ createdAt: -1 });
     const studioIds = wishlistItems.map((item) => item.studioId);
@@ -76,7 +88,11 @@ export async function getWishlist(req: Request, res: Response): Promise<void> {
 export async function checkWishlistStatus(req: Request, res: Response): Promise<void> {
   try {
     const { studioId } = req.params;
-    const userId = (req as any).user?._id || req.query.userId || 'creator_marcus';
+    const userId = (req as any).user?._id || req.query.userId;
+    if (!userId) {
+      res.status(200).json({ success: true, isSaved: false });
+      return;
+    }
 
     const existing = await Wishlist.findOne({ userId, studioId });
 

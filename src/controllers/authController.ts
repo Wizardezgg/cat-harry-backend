@@ -75,7 +75,7 @@ export async function register(req: Request, res: Response): Promise<void> {
       name: name.trim(),
       email: normalizedEmail,
       password: hashedPassword,
-      photoUrl: photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
+      photoUrl: photoUrl ? photoUrl.trim() : '',
       role: role === 'host' ? 'host' : 'creator',
     });
 
@@ -217,17 +217,24 @@ export async function logout(_req: Request, res: Response): Promise<void> {
 export async function googleAuth(req: Request, res: Response): Promise<void> {
   try {
     const { name, email, photoUrl } = req.body;
-    const normalizedEmail = (email || 'creator@studiospace.com').toLowerCase().trim();
+    if (!email) {
+      res.status(400).json({
+        success: false,
+        message: 'Google authentication requires a valid email address.',
+      });
+      return;
+    }
+    const normalizedEmail = email.toLowerCase().trim();
 
     let user = await User.findOne({ email: normalizedEmail });
     if (!user) {
       const randomPassword = await bcrypt.hash(`ApertureGoogle@${Date.now()}`, 10);
       user = await User.create({
-        name: name || 'Elena Rostova',
+        name: name || normalizedEmail.split('@')[0],
         email: normalizedEmail,
         password: randomPassword,
-        photoUrl: photoUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=400&q=80',
-        role: normalizedEmail.includes('host') ? 'host' : 'creator',
+        photoUrl: photoUrl || '',
+        role: 'creator',
       });
     }
 

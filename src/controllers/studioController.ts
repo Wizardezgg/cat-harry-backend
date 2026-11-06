@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
 import { Studio } from '../models/Studio';
+import { Booking } from '../models/Booking';
 
 // @desc    Get all studios with dynamic search, category, price range, and sort
 // @route   GET /api/studios
@@ -89,11 +90,18 @@ export async function getStudios(req: Request, res: Response): Promise<void> {
 // @route   GET /api/studios/featured
 export async function getFeaturedStudios(req: Request, res: Response): Promise<void> {
   try {
-    const featured = await Studio.find({
-      $or: [{ featured: true }, { rating: { $gte: 4.9 } }],
+    let featured = await Studio.find({
+      $or: [{ featured: true }, { rating: { $gte: 4.8 } }],
     })
-      .sort({ rating: -1, reviewsCount: -1 })
+      .sort({ rating: -1, reviewsCount: -1, createdAt: -1 })
       .limit(6);
+
+    // If no studios have ratings yet, display the latest active studios
+    if (featured.length === 0) {
+      featured = await Studio.find({})
+        .sort({ createdAt: -1 })
+        .limit(6);
+    }
 
     res.status(200).json({
       success: true,
@@ -151,20 +159,20 @@ export async function createStudio(req: Request, res: Response): Promise<void> {
       ? [body.imageUrl]
       : [];
 
-    const locationStr =
-      typeof body.location === 'object'
-        ? `${body.location.address || ''}, ${body.location.city || ''}, ${body.location.state || ''}`
-        : body.location;
+    const addressStr =
+      typeof body.location === 'object' && body.location.address
+        ? String(body.location.address).trim()
+        : String(body.address || '').trim();
 
     const cityStr =
       typeof body.location === 'object' && body.location.city
-        ? body.location.city
-        : body.city || 'New York';
+        ? String(body.location.city).trim()
+        : String(body.city || '').trim();
 
-    const addressStr =
-      typeof body.location === 'object' && body.location.address
-        ? body.location.address
-        : body.address || locationStr;
+    const locationStr =
+      typeof body.location === 'object'
+        ? [addressStr, cityStr].filter(Boolean).join(', ')
+        : String(body.location || [addressStr, cityStr].filter(Boolean).join(', ')).trim();
 
     const newStudio = await Studio.create({
       title: body.title,
@@ -172,20 +180,20 @@ export async function createStudio(req: Request, res: Response): Promise<void> {
       category: body.category,
       pricePerHour: Number(hourlyRate),
       location: locationStr,
-      address: addressStr,
-      city: cityStr,
+      address: addressStr || locationStr,
+      city: cityStr || 'Metro',
       images,
       amenities: body.amenities || [],
       rules: body.rules || [],
-      sqft: body.sqft || 2500,
-      capacity: body.maxCapacity || body.capacity || 20,
-      rating: 5.0,
+      sqft: body.sqft ? Number(body.sqft) : undefined,
+      capacity: body.maxCapacity || body.capacity || undefined,
+      rating: 0,
       reviewsCount: 0,
       featured: Boolean(body.featured),
-      ownerId: body.ownerId || (req as any).user?._id || 'host_elena',
-      ownerName: body.ownerName || (req as any).user?.name || 'Elena Rostova',
-      ownerEmail: (body.ownerEmail || (req as any).user?.email || 'host@studiospace.com').toLowerCase(),
-      ownerPhone: body.ownerPhone || '+1 (718) 555-0192',
+      ownerId: body.ownerId || (req as any).user?._id || 'host_user',
+      ownerName: body.ownerName || (req as any).user?.name || 'Verified Host',
+      ownerEmail: (body.ownerEmail || (req as any).user?.email || '').toLowerCase(),
+      ownerPhone: body.ownerPhone || '',
       instantBooking: true,
     });
 
@@ -237,9 +245,11 @@ export async function updateStudio(req: Request, res: Response): Promise<void> {
     }
 
     if (typeof body.location === 'object') {
-      existing.location = `${body.location.address || ''}, ${body.location.city || ''}, ${body.location.state || ''}`;
-      if (body.location.city) existing.city = body.location.city;
-      if (body.location.address) existing.address = body.location.address;
+      const addr = String(body.location.address || existing.address || '').trim();
+      const cty = String(body.location.city || existing.city || '').trim();
+      existing.address = addr;
+      existing.city = cty;
+      existing.location = [addr, cty].filter(Boolean).join(', ');
     } else if (typeof body.location === 'string') {
       existing.location = body.location;
     }
@@ -294,19 +304,58 @@ export async function deleteStudio(req: Request, res: Response): Promise<void> {
 export async function getMyListings(req: Request, res: Response): Promise<void> {
   try {
     const ownerEmail =
-      (req as any).user?.email ||
       req.query.ownerEmail ||
       req.query.email ||
-      'host@studiospace.com';
+      (req as any).user?.email;
 
-    const studios = await Studio.find({
-      ownerEmail: new RegExp(`^${String(ownerEmail).trim()}$`, 'i'),
-    }).sort({ createdAt: -1 });
+    const ownerId = req.query.ownerId || (req as any).user?._id;
+
+    if (!ownerEmail && !ownerId) {
+      res.status(200).json({
+        success: true,
+        count: 0,
+        studios: [],
+      });
+      return;
+    }
+
+    const filter: Record<string, any> = {};
+    if (ownerEmail && ownerId) {
+      filter.$or = [
+        { ownerEmail: new RegExp(`^${String(ownerEmail).trim()}$`, 'i') },
+        { ownerId: String(ownerId) },
+      ];
+    } else if (ownerEmail) {
+      filter.ownerEmail = new RegExp(`^${String(ownerEmail).trim()}$`, 'i');
+    } else if (ownerId) {
+      filter.ownerId = String(ownerId);
+    }
+
+    const studios = await Studio.find(filter).sort({ createdAt: -1 });
+
+    const studioIds = studios.map((s) => s._id.toString());
+    const bookings = await Booking.find({
+      studioId: { $in: studioIds },
+      status: { $in: ['confirmed', 'Confirmed', 'pending', 'Pending'] },
+    });
+
+    const studiosWithStats = studios.map((st) => {
+      const stIdStr = st._id.toString();
+      const studioBookings = bookings.filter((b) => b.studioId === stIdStr);
+      const mtdRevenue = studioBookings.reduce((sum, b) => sum + (b.totalPrice || 0), 0);
+      const doc = st.toObject();
+      return {
+        ...doc,
+        monthBookings: studioBookings.length,
+        bookingsCount: studioBookings.length,
+        mtdRevenue,
+      };
+    });
 
     res.status(200).json({
       success: true,
-      count: studios.length,
-      studios,
+      count: studiosWithStats.length,
+      studios: studiosWithStats,
     });
   } catch (err: any) {
     res.status(500).json({
